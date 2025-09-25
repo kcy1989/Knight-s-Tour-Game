@@ -3,6 +3,7 @@ import sys
 import time
 import threading
 import random
+import math
 from typing import List, Tuple, Optional
 
 
@@ -12,6 +13,7 @@ class KnightTourGame:
         self.board = [[0 for _ in range(board_size)] for _ in range(board_size)]
         self.visited = [[False for _ in range(board_size)] for _ in range(board_size)]
         self.knight_pos = None
+        self.previous_pos = None  # Track previous position for arrow display
         self.move_count = 0
         self.game_over = False
         self.won = False
@@ -70,6 +72,7 @@ class KnightTourGame:
         self.LIGHT_BLUE = (173, 216, 230)
         self.DARKER_BLUE = (135, 206, 235)
         self.DISABLED_GRAY = (169, 169, 169)
+        self.ARROW_COLOR = (255, 100, 0)  # Orange-red color for L-shaped arrow
 
         # Fonts
         self.font = pygame.font.Font(None, 42)
@@ -136,6 +139,7 @@ class KnightTourGame:
         """Automatically place knight at a1 (left bottom corner)"""
         start_x, start_y = 0, 7
         self.knight_pos = (start_x, start_y)
+        self.previous_pos = None  # First move has no previous position
         self.visited[start_y][start_x] = True
         self.board[start_y][start_x] = 1
         self.move_count = 1
@@ -260,6 +264,9 @@ class KnightTourGame:
         possible_moves = self.get_possible_moves(current_x, current_y)
 
         if (x, y) in possible_moves:
+            # Record previous position for arrow display
+            self.previous_pos = self.knight_pos
+
             self.knight_pos = (x, y)
             self.visited[y][x] = True
             self.move_count += 1
@@ -283,6 +290,7 @@ class KnightTourGame:
         self.board = [[0 for _ in range(self.board_size)] for _ in range(self.board_size)]
         self.visited = [[False for _ in range(self.board_size)] for _ in range(self.board_size)]
         self.knight_pos = None
+        self.previous_pos = None
         self.move_count = 0
         self.game_over = False
         self.won = False
@@ -318,6 +326,120 @@ class KnightTourGame:
         else:
             # During normal gameplay, all buttons except stop_auto are enabled
             return button_name == 'stop_auto'
+
+    def draw_l_shaped_arrow(self, from_pos: Tuple[int, int], to_pos: Tuple[int, int]):
+        """Draw L-shaped arrow showing knight's last move with thick, semi-transparent style and large triangular arrowhead"""
+        if not from_pos or not to_pos:
+            return
+
+        from_x, from_y = from_pos
+        to_x, to_y = to_pos
+
+        # Calculate screen coordinates for cell centers
+        from_screen_x = self.board_offset_x + from_x * self.cell_size + self.cell_size // 2
+        from_screen_y = self.board_offset_y + from_y * self.cell_size + self.cell_size // 2
+        to_screen_x = self.board_offset_x + to_x * self.cell_size + self.cell_size // 2
+        to_screen_y = self.board_offset_y + to_y * self.cell_size + self.cell_size // 2
+
+        # Calculate the L-shaped path
+        dx = to_x - from_x
+        dy = to_y - from_y
+
+        # Determine the intermediate point for L-shape
+        # Knight moves are always 2 squares in one direction and 1 in perpendicular
+        if abs(dx) == 2:
+            # Move 2 horizontally first, then 1 vertically
+            mid_x = from_x + dx
+            mid_y = from_y
+        else:
+            # Move 2 vertically first, then 1 horizontally
+            mid_x = from_x
+            mid_y = from_y + dy
+
+        mid_screen_x = self.board_offset_x + mid_x * self.cell_size + self.cell_size // 2
+        mid_screen_y = self.board_offset_y + mid_y * self.cell_size + self.cell_size // 2
+
+        # Create a surface for semi-transparent drawing
+        arrow_surface = pygame.Surface((self.screen_width, self.screen_height), pygame.SRCALPHA)
+
+        # Arrow properties
+        arrow_width = 15  # Thick arrow body
+        arrow_color = (*self.ARROW_COLOR, 180)  # Semi-transparent orange-red
+        triangle_size = 35
+
+        # Calculate direction from mid point to destination for arrowhead
+        direction_x = to_screen_x - mid_screen_x
+        direction_y = to_screen_y - mid_screen_y
+        length = math.sqrt(direction_x ** 2 + direction_y ** 2)
+
+        # Calculate shortened arrow body endpoint
+        if length > 0:
+            # Normalize direction vector
+            dir_x = direction_x / length
+            dir_y = direction_y / length
+
+            # Shorten the arrow body so it doesn't extend beyond the triangle base
+            arrow_body_end_x = to_screen_x - (triangle_size * 0.7) * dir_x
+            arrow_body_end_y = to_screen_y - (triangle_size * 0.7) * dir_y
+        else:
+            arrow_body_end_x = to_screen_x
+            arrow_body_end_y = to_screen_y
+
+        # Draw the L-shaped path with thick lines (shortened)
+        pygame.draw.line(arrow_surface, arrow_color,
+                         (from_screen_x, from_screen_y),
+                         (mid_screen_x, mid_screen_y), arrow_width)
+        pygame.draw.line(arrow_surface, arrow_color,
+                         (mid_screen_x, mid_screen_y),
+                         (arrow_body_end_x, arrow_body_end_y), arrow_width)
+
+        # Draw circles at key points
+        # Start point (larger circle)
+        pygame.draw.circle(arrow_surface, arrow_color,
+                           (from_screen_x, from_screen_y), 10)
+
+        # Corner point (medium circle)
+        pygame.draw.circle(arrow_surface, arrow_color,
+                           (mid_screen_x, mid_screen_y), 8)
+
+        # Draw large triangular arrowhead
+        if length > 0:
+            # Calculate perpendicular vector (90 degrees rotated)
+            perp_x = -dir_y
+            perp_y = dir_x
+
+            # Tip of the arrow (at destination)
+            tip_x = to_screen_x
+            tip_y = to_screen_y
+
+            # Two base points of the isosceles right triangle
+            # Move back from tip by triangle_size in the opposite direction
+            base_center_x = tip_x - triangle_size * dir_x
+            base_center_y = tip_y - triangle_size * dir_y
+
+            # Create two base points perpendicular to the direction
+            # For isosceles right triangle, the base width equals the height
+            base_half_width = triangle_size / 2
+
+            base_left_x = base_center_x + base_half_width * perp_x
+            base_left_y = base_center_y + base_half_width * perp_y
+            base_right_x = base_center_x - base_half_width * perp_x
+            base_right_y = base_center_y - base_half_width * perp_y
+
+            # Draw filled triangular arrowhead
+            triangle_points = [
+                (tip_x, tip_y),
+                (base_left_x, base_left_y),
+                (base_right_x, base_right_y)
+            ]
+            pygame.draw.polygon(arrow_surface, arrow_color, triangle_points)
+
+            # Add a small circle at the arrow tip for extra emphasis
+            pygame.draw.circle(arrow_surface, arrow_color,
+                               (int(tip_x), int(tip_y)), 4)
+
+        # Blit the semi-transparent arrow surface to the main screen
+        self.screen.blit(arrow_surface, (0, 0))
 
     def handle_button_click(self, mouse_pos: Tuple[int, int]):
         """Handle button clicks"""
@@ -480,7 +602,7 @@ class KnightTourGame:
                 pygame.draw.circle(self.screen, self.GREEN,
                                    (x + self.cell_size // 2, y + self.cell_size // 2), circle_size)
 
-        # Draw knight position
+        # Draw knight position FIRST
         if self.knight_pos:
             kx, ky = self.knight_pos
             x = self.board_offset_x + kx * self.cell_size
@@ -497,6 +619,10 @@ class KnightTourGame:
             knight_text = self.big_font.render("K", True, self.BLACK)
             knight_rect = knight_text.get_rect(center=(x + self.cell_size // 2, y + self.cell_size // 2))
             self.screen.blit(knight_text, knight_rect)
+
+        # Draw L-shaped arrow AFTER knight (so it appears on top)
+        if self.previous_pos and self.knight_pos and self.move_count > 1:
+            self.draw_l_shaped_arrow(self.previous_pos, self.knight_pos)
 
     def draw_info(self):
         """Draw game information"""
@@ -534,7 +660,7 @@ class KnightTourGame:
             color = self.ORANGE
         elif self.game_over:
             if self.won:
-                status_text = "Congratulations! Knight's Tour Complete!"
+                status_text = "Congratulations! You win! Click 'Restart' to play again"
                 color = self.GREEN
             else:
                 status_text = "Game Over! Knight is trapped! Click 'Restart' to try again"
@@ -546,6 +672,7 @@ class KnightTourGame:
 
         status_surface = self.font.render(status_text, True, color)
         self.screen.blit(status_surface, (self.margin, info_y + 124))
+
 
     def run(self):
         """Run the main game loop"""
@@ -559,12 +686,6 @@ class KnightTourGame:
         print("   - Visit every cell on the board exactly once")
         print("   - Green positions show where you can move")
         print("   - Gray cells show visited positions with move numbers")
-        print("   - Use buttons to control the game:")
-        print("     * 'Next Step' for computer assistance (random choice)")
-        print("     * 'Auto Complete' to solve automatically (random path)")
-        print("     * 'Stop Auto' to stop automatic play")
-        print("     * 'Restart Game' to reset")
-        print("     * 'Exit Game' to quit")
         print("   - Goal: Complete all 64 squares!")
         print(f"\nKnight placed at a1")
 
